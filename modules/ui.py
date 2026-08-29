@@ -664,38 +664,70 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(card)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)  # slider column grows
+        grid.setColumnMinimumWidth(2, 44)  # fixed width for pct label
 
-        def slider(min_v, max_v, default, denom, on_change):
+        def pct_label(initial_text: str) -> QLabel:
+            lbl = QLabel(initial_text)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            lbl.setFixedWidth(44)
+            lbl.setStyleSheet("color: #9ec5ff; font-weight: 600;")
+            return lbl
+
+        def slider(min_v, max_v, default, denom, on_change, pct_lbl, fmt_fn):
             s = QSlider(Qt.Orientation.Horizontal)
             s.setRange(int(min_v * denom), int(max_v * denom))
             s.setValue(int(default * denom))
-            s.valueChanged.connect(lambda iv: on_change(iv / denom))
+            def _on_value(iv):
+                on_change(iv / denom)
+                pct_lbl.setText(fmt_fn(iv / denom))
+            s.valueChanged.connect(_on_value)
             return s
 
-        # Transparency
+        # Transparency  (0–100 %)
         grid.addWidget(QLabel(_("Transparency")), 0, 0)
-        self.s_transparency = slider(0.0, 1.0, 1.0, 100, self._on_transparency_change)
+        self.lbl_transparency = pct_label("100%")
+        self.s_transparency = slider(
+            0.0, 1.0, 1.0, 100,
+            self._on_transparency_change,
+            self.lbl_transparency,
+            lambda v: f"{int(round(v * 100))}%",
+        )
         self.s_transparency.setToolTip(
             _("Blend between original and swapped face (0% = original, 100% = fully swapped)")
         )
         grid.addWidget(self.s_transparency, 0, 1)
+        grid.addWidget(self.lbl_transparency, 0, 2)
 
-        # Sharpness
+        # Sharpness  (0.0–5.0 → shown as 0–100 %)
         grid.addWidget(QLabel(_("Sharpness")), 1, 0)
-        self.s_sharpness = slider(0.0, 5.0, 0.0, 10, self._on_sharpness_change)
+        self.lbl_sharpness = pct_label("0%")
+        self.s_sharpness = slider(
+            0.0, 5.0, 0.0, 10,
+            self._on_sharpness_change,
+            self.lbl_sharpness,
+            lambda v: f"{int(round(v / 5.0 * 100))}%",
+        )
         self.s_sharpness.setToolTip(_("Sharpen the enhanced face output"))
         grid.addWidget(self.s_sharpness, 1, 1)
+        grid.addWidget(self.lbl_sharpness, 1, 2)
 
-        # Mouth mask — always starts at 0 (disabled) on launch
+        # Mouth Mask  (0–100)
         grid.addWidget(QLabel(_("Mouth Mask")), 2, 0)
-        self.s_mouth = slider(0.0, 100.0, 0.0, 1,
-                              self._on_mouth_mask_change)
+        self.lbl_mouth = pct_label("0%")
+        self.s_mouth = slider(
+            0.0, 100.0, 0.0, 1,
+            self._on_mouth_mask_change,
+            self.lbl_mouth,
+            lambda v: f"{int(round(v))}%",
+        )
         self.s_mouth.sliderPressed.connect(self._on_mouth_mask_pressed)
         self.s_mouth.sliderReleased.connect(self._on_mouth_mask_released)
         self.s_mouth.setToolTip(
             _("0 = use swapped mouth, 100 = expose original mouth to chin area")
         )
         grid.addWidget(self.s_mouth, 2, 1)
+        grid.addWidget(self.lbl_mouth, 2, 2)
         return card
 
     # ── action row ───────────────────────────────────────────────────────
