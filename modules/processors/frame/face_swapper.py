@@ -17,7 +17,6 @@ from modules.utilities import (
 )
 from modules.cluster_analysis import find_closest_centroid
 from modules.gpu_processing import gpu_gaussian_blur, gpu_sharpen, gpu_add_weighted, gpu_resize
-from modules.platform_info import OPENVINO_PROVIDER_CONFIG
 import os
 from collections import deque
 import time
@@ -258,7 +257,8 @@ def get_face_swapper() -> Any:
                         NAME,
                     )
                 else:
-                    if not pre_check(): return None
+                    if not pre_check():
+                        return None
                     model_path = fp16_path if os.path.exists(fp16_path) else fp32_path
 
             if IS_APPLE_SILICON:

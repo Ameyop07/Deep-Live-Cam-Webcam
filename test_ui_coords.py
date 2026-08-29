@@ -1,8 +1,5 @@
-import os
 import sys
 from PySide6.QtWidgets import QApplication
-from modules.gettext import LanguageManager
-import modules.globals
 
 def test():
     app = QApplication(sys.argv)
