@@ -162,7 +162,6 @@ def create_video(target_path: str, fps: float = 30.0) -> bool:
     ffmpeg_args.extend([
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",  # Enable fast start for web playback
-        "-vf", "colorspace=bt709:iall=bt601-6-625:fast=1",
         "-y",
         temp_output_path,
     ])
@@ -182,7 +181,6 @@ def create_video(target_path: str, fps: float = 30.0) -> bool:
             "-crf", str(modules.globals.video_quality),
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
-            "-vf", "colorspace=bt709:iall=bt601-6-625:fast=1",
             "-y",
             temp_output_path,
         ]

@@ -295,7 +295,6 @@ def _run_pipe_pipeline(
     writer_cmd.extend([
         '-pix_fmt', 'yuv420p',
         '-movflags', '+faststart',
-        '-vf', 'colorspace=bt709:iall=bt601-6-625:fast=1',
         '-v', 'error',
         '-y', temp_output_path,
     ])
