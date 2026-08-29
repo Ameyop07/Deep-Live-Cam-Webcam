@@ -192,6 +192,8 @@ def create_video(target_path: str, fps: float = 30.0) -> bool:
 
 def restore_audio(target_path: str, output_path: str) -> None:
     temp_output_path = get_temp_output_path(target_path)
+    
+    # Try copying the audio codec directly (fastest, lossless, optional mapping)
     done = run_ffmpeg(
         [
             "-i",
@@ -200,14 +202,38 @@ def restore_audio(target_path: str, output_path: str) -> None:
             target_path,
             "-c:v",
             "copy",
+            "-c:a",
+            "copy",
             "-map",
             "0:v:0",
             "-map",
-            "1:a:0",
+            "1:a?",
             "-y",
             output_path,
         ]
     )
+    
+    # Fallback: if copy fails (e.g., container incompatible with audio format), try re-encoding to aac
+    if not done:
+        done = run_ffmpeg(
+            [
+                "-i",
+                temp_output_path,
+                "-i",
+                target_path,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a?",
+                "-y",
+                output_path,
+            ]
+        )
+        
     if not done:
         move_temp(target_path, output_path)
 
