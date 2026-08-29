@@ -346,7 +346,13 @@ def resolve_relative_path(path: str) -> str:
 
 
 def get_video_dimensions(target_path: str) -> tuple:
-    """Get video width and height using ffprobe."""
+    """Get video width and height using ffprobe, accounting for rotation metadata.
+
+    Must stay in sync with the -noautorotate flag used in _run_pipe_pipeline's
+    reader: with -noautorotate FFmpeg outputs raw encoded dimensions WITHOUT
+    applying the rotation tag.  So we return the raw (pre-rotation) dimensions
+    here so that frame_size stays correct for both portrait and landscape.
+    """
     command = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
