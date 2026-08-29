@@ -53,13 +53,15 @@ def _create_elliptical_mask(size: Tuple[int, int]) -> np.ndarray:
         return _ELLIPTICAL_MASK_CACHE[size]
     h, w = size
     center = (w // 2, h // 2)
-    axes = (int(w * 0.44), int(h * 0.44))
+    # Keep in sync with _get_soft_alpha: 0.38 ellipse + (51,51)/sigma=20 blur
+    # so both paste-back and Poisson use the same feather geometry.
+    axes = (int(w * 0.38), int(h * 0.38))
     mask = np.zeros((h, w), dtype=np.float32)
     cv2.ellipse(mask, center, axes, 0, 0, 360, 1, -1)
     if h * w < 65536:
-        mask = cv2.GaussianBlur(mask, (31, 31), 12)
+        mask = cv2.GaussianBlur(mask, (51, 51), 20)
     else:
-        mask = gpu_gaussian_blur(mask, (31, 31), 12)
+        mask = gpu_gaussian_blur(mask, (51, 51), 20)
     _ELLIPTICAL_MASK_CACHE[size] = mask
     return mask
 
@@ -492,7 +494,7 @@ def _fast_paste_back(target_img: Frame, bgr_fake: np.ndarray, aimg: np.ndarray, 
         return target_img
 
     # Small interpolation margin only — the feather is baked into the template.
-    pad = 2
+    pad = 4
     y1p, y2p = max(0, y1 - pad), min(h, y2 + pad + 1)
     x1p, x2p = max(0, x1 - pad), min(w, x2 + pad + 1)
 
@@ -502,8 +504,13 @@ def _fast_paste_back(target_img: Frame, bgr_fake: np.ndarray, aimg: np.ndarray, 
     crop_w, crop_h = x2p - x1p, y2p - y1p
 
     soft_alpha = _get_soft_alpha(face_h)
-    bgr_fake_crop = cv2.warpAffine(bgr_fake, IM_crop, (crop_w, crop_h), borderMode=cv2.BORDER_REPLICATE)
-    alpha_crop = cv2.warpAffine(soft_alpha, IM_crop, (crop_w, crop_h), borderValue=0)
+    # BORDER_CONSTANT=0: pixels outside the warped face area are black/zero,
+    # so they contribute nothing once multiplied by the feathered alpha.
+    # BORDER_REPLICATE was leaking repeated edge pixels through the feather,
+    # creating the visible square-box artifact at the crop boundary.
+    bgr_fake_crop = cv2.warpAffine(bgr_fake, IM_crop, (crop_w, crop_h),
+                                   borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    alpha_crop   = cv2.warpAffine(soft_alpha, IM_crop, (crop_w, crop_h), borderValue=0)
 
     target_crop = target_img[y1p:y2p, x1p:x2p]
 
