@@ -1128,7 +1128,7 @@ def process_video(source_path: str, temp_frame_paths: List[str]) -> None:
 
 def create_lower_mouth_mask(
     face: Face, frame: Frame
-) -> (np.ndarray, np.ndarray, tuple, np.ndarray):
+) -> Tuple[np.ndarray, np.ndarray, tuple, np.ndarray]:
     mask = np.zeros(frame.shape[:2], dtype=np.uint8)
     mouth_cutout = None
     lower_lip_polygon = None # Initialize
