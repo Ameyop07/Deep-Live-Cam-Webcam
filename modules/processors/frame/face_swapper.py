@@ -235,26 +235,32 @@ def get_face_swapper() -> Any:
 
     with THREAD_LOCK:
         if FACE_SWAPPER is None:
-            # Prefer FP16 on GPUs with Tensor Cores (Turing+) — half the
-            # memory bandwidth, faster inference.  Fall back to FP32 for
-            # older GPUs (e.g. GTX 16xx) where FP16 can produce NaN.
             fp32_path = os.path.join(models_dir, "inswapper_128.onnx")
             fp16_path = os.path.join(models_dir, "inswapper_128_fp16.onnx")
-            use_fp16 = _HAS_TORCH_CUDA and os.path.exists(fp16_path)
+            
+            # Prefer FP16 on CUDA only if the GPU supports it
+            use_fp16 = _HAS_TORCH_CUDA and os.path.exists(fp16_path) and _gpu_supports_fp16()
+            _force_cpu_for_swap = False
+            
             if use_fp16:
                 model_path = fp16_path
             elif os.path.exists(fp32_path):
                 model_path = fp32_path
             else:
-                if not pre_check():
-                    return None
-                model_path = fp16_path if os.path.exists(fp16_path) else fp32_path
-                if not os.path.exists(model_path):
-                    update_status(f"No inswapper model found in {models_dir}.", NAME)
-                    return None
-            # On Apple Silicon, rewrite Pad(reflect) → Slice+Concat so
-            # CoreML can run the entire model in a single partition on
-            # the Neural Engine instead of bouncing between CPU and ANE.
+                if os.path.exists(fp16_path):
+                    # Only FP16 exists but GPU does not support FP16 safely.
+                    # Force CPU execution to prevent NaN/black-patch artifacts.
+                    model_path = fp16_path
+                    _force_cpu_for_swap = True
+                    update_status(
+                        "FP32 model not found. Running FP16 model on CPU to avoid black-patch. "
+                        "Downloading the FP32 model in the background for GPU acceleration...",
+                        NAME,
+                    )
+                else:
+                    if not pre_check(): return None
+                    model_path = fp16_path if os.path.exists(fp16_path) else fp32_path
+
             if IS_APPLE_SILICON:
                 from modules.onnx_optimize import optimize_for_coreml
                 model_path = optimize_for_coreml(model_path)
@@ -262,38 +268,23 @@ def get_face_swapper() -> Any:
             update_status(f"Loading face swapper model from: {model_path}", NAME)
             try:
                 providers_config = []
-                for p in modules.globals.execution_providers:
-                    if p == "CoreMLExecutionProvider" and IS_APPLE_SILICON:
-                        # Enhanced CoreML configuration for M1-M5
-                        providers_config.append((
-                            "CoreMLExecutionProvider",
-                            {
-                                "ModelFormat": "MLProgram",
-                                "MLComputeUnits": "ALL",  # Use Neural Engine + GPU + CPU
-                                "SpecializationStrategy": "FastPrediction",
-                                "AllowLowPrecisionAccumulationOnGPU": 1,
-                                "EnableOnSubgraphs": 1,
-                            }
-                        ))
-                    elif p == "CUDAExecutionProvider":
-                        # Use bare provider — ONNX Runtime defaults are
-                        # fastest on modern GPUs (Blackwell/sm_120).
-                        providers_config.append(p)
-                    elif p == "OpenVINOExecutionProvider":
-                        providers_config.append(OPENVINO_PROVIDER_CONFIG)
-                    else:
-                        providers_config.append(p)
-                FACE_SWAPPER = insightface.model_zoo.get_model(
-                    model_path,
-                    providers=providers_config,
-                )
-                # Set up CUDA graph session for faster inference
-                if _HAS_TORCH_CUDA and any(
-                    p == "CUDAExecutionProvider" or
-                    (isinstance(p, tuple) and p[0] == "CUDAExecutionProvider")
-                    for p in providers_config
-                ):
+                if _force_cpu_for_swap:
+                    providers_config = ["CPUExecutionProvider"]
+                else:
+                    for p in modules.globals.execution_providers:
+                        if p == "CoreMLExecutionProvider" and IS_APPLE_SILICON:
+                            providers_config.append(("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "MLComputeUnits": "ALL"}))
+                        elif p == "CUDAExecutionProvider":
+                            providers_config.append(p)
+                        else:
+                            providers_config.append(p)
+                
+                FACE_SWAPPER = insightface.model_zoo.get_model(model_path, providers=providers_config)
+                
+                # Only init CUDA graph for tensor-core GPUs
+                if not _force_cpu_for_swap and _HAS_TORCH_CUDA and _gpu_supports_fp16():
                     _init_cuda_graph_session(model_path, FACE_SWAPPER)
+                
                 update_status("Face swapper model loaded successfully.", NAME)
             except Exception as e:
                 update_status(f"Error loading face swapper model: {e}", NAME)
@@ -309,6 +300,32 @@ try:
         _HAS_TORCH_CUDA = True
 except ImportError:
     pass
+
+
+def _gpu_supports_fp16() -> bool:
+    """True only for CUDA GPUs that have hardware tensor cores.
+
+    The FP16 inswapper model emits NaN/garbage — rendered as a black patch
+    over the face — on CUDA GPUs without tensor cores: Turing TU116/TU117
+    (GTX 16xx and T-series such as the T600, compute 7.5 but no "RTX"), and
+    Pascal/older. Restrict FP16 to Volta (7.0), Turing RTX (7.5 + "RTX") and
+    Ampere-or-newer (major >= 8); everything else falls back to the FP32
+    model, which is numerically robust on every GPU.
+    """
+    if not _HAS_TORCH_CUDA:
+        return False
+    try:
+        major, minor = torch.cuda.get_device_capability(0)
+        name = torch.cuda.get_device_name(0).upper()
+    except Exception:
+        return False
+    if major >= 8:
+        return True
+    if (major, minor) == (7, 0):
+        return True
+    if (major, minor) == (7, 5):
+        return "RTX" in name
+    return False
 
 # Cache for paste-back
 _paste_cache = {

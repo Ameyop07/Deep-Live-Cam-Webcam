@@ -84,7 +84,7 @@ import json
 
 # ─── constants ────────────────────────────────────────────────────────────
 
-ROOT_HEIGHT = 820
+ROOT_HEIGHT = 680
 ROOT_WIDTH = 640
 
 PREVIEW_MAX_HEIGHT = 700
@@ -110,20 +110,20 @@ SOURCE_TARGET_PREVIEW_SIZE = 200
 
 QSS = """
 QMainWindow, QDialog { background-color: #1e1e1e; color: #e6e6e6; }
-QWidget { color: #e6e6e6; font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-size: 11pt; }
+QWidget { color: #e6e6e6; font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif; font-size: 10pt; }
 
 QGroupBox {
     background-color: #262626;
     border: 1px solid #333333;
-    border-radius: 10px;
-    margin-top: 14px;
-    padding-top: 18px;
+    border-radius: 8px;
+    margin-top: 6px;
+    padding-top: 10px;
     font-weight: 600;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 8px;
+    padding: 0 6px;
     color: #9ec5ff;
 }
 
@@ -131,8 +131,8 @@ QPushButton {
     background-color: #2d6cdf;
     color: white;
     border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
+    border-radius: 6px;
+    padding: 6px 12px;
     font-weight: 600;
 }
 QPushButton:hover  { background-color: #3a7af0; }
@@ -483,11 +483,20 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(
             f"{modules.metadata.name} {modules.metadata.version} {modules.metadata.edition}"
         )
-        self.setMinimumSize(ROOT_WIDTH, ROOT_HEIGHT)
-        self.resize(ROOT_WIDTH, ROOT_HEIGHT)
+        screen = QApplication.primaryScreen().availableGeometry()
+        init_height = min(ROOT_HEIGHT, screen.height() - 80)
+        init_width = min(ROOT_WIDTH, screen.width() - 40)
+        self.setMinimumWidth(ROOT_WIDTH)
+        self.setMinimumHeight(400)
+        self.resize(init_width, init_height)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setCentralWidget(scroll)
 
         root = QWidget()
-        self.setCentralWidget(root)
+        scroll.setWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -513,12 +522,18 @@ class MainWindow(QMainWindow):
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status_label)
 
+        # Compact layout stretch
+        layout.addStretch(1)
+
         footer = QLabel("Deep Live Cam")
         footer.setObjectName("linkLabel")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setCursor(Qt.CursorShape.PointingHandCursor)
         footer.mousePressEvent = lambda _e: webbrowser.open("https://deeplivecam.net")
         layout.addWidget(footer)
+
+        # Force scroll area to show the top of the GUI on launch
+        QTimer.singleShot(100, lambda: scroll.verticalScrollBar().setValue(0))
 
     # ── image row ────────────────────────────────────────────────────────
 
@@ -528,7 +543,7 @@ class MainWindow(QMainWindow):
 
         # Source column
         src_col = QVBoxLayout()
-        self.source_label = _make_image_drop(_("Source face"), (200, 200))
+        self.source_label = _make_image_drop(_("Source face"), (120, 120))
         src_col.addWidget(self.source_label, alignment=Qt.AlignmentFlag.AlignCenter)
         src_row = QHBoxLayout()
         self.btn_select_source = QPushButton(_("Select a face"))
@@ -560,7 +575,7 @@ class MainWindow(QMainWindow):
 
         # Target column
         tgt_col = QVBoxLayout()
-        self.target_label = _make_image_drop(_("Target"), (200, 200))
+        self.target_label = _make_image_drop(_("Target"), (120, 120))
         tgt_col.addWidget(self.target_label, alignment=Qt.AlignmentFlag.AlignCenter)
         self.btn_select_target = QPushButton(_("Select a target"))
         self.btn_select_target.setToolTip(
@@ -1525,6 +1540,17 @@ class _Window:
 
     def mainloop(self) -> None:
         self._main.show()
+        # Centre the window on the primary screen to fix off-screen placement
+        # (e.g. window remembered position from a disconnected secondary monitor).
+        screen = self._app.primaryScreen()
+        if screen is not None:
+            screen_geo = screen.availableGeometry()
+            win_geo = self._main.frameGeometry()
+            center = screen_geo.center()
+            win_geo.moveCenter(center)
+            self._main.move(win_geo.topLeft())
+        self._main.raise_()
+        self._main.activateWindow()
         self._app.exec()
 
 
