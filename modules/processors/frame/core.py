@@ -276,11 +276,8 @@ def _run_pipe_pipeline(
     # conversion silently fails or produces garbled frames mid-stream, which
     # breaks landscape/horizontal videos (larger frames exhaust the HW buffer
     # faster).  CPU decoding is fast enough and byte-exact.
-    # -noautorotate: keeps decoded frame dimensions identical to what ffprobe
-    # reported so frame_size stays correct for both portrait and landscape.
     reader_cmd = [
         'ffmpeg', '-hide_banner',
-        '-noautorotate',
         '-threads', str(modules.globals.execution_threads or 4),
         '-i', target_path,
         '-f', 'rawvideo',

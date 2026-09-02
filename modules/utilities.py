@@ -346,22 +346,55 @@ def resolve_relative_path(path: str) -> str:
 
 
 def get_video_dimensions(target_path: str) -> tuple:
-    """Get video width and height using ffprobe, accounting for rotation metadata.
-
-    Must stay in sync with the -noautorotate flag used in _run_pipe_pipeline's
-    reader: with -noautorotate FFmpeg outputs raw encoded dimensions WITHOUT
-    applying the rotation tag.  So we return the raw (pre-rotation) dimensions
-    here so that frame_size stays correct for both portrait and landscape.
+    """Get video width and height using ffprobe, correctly handling auto-rotation.
+    
+    Since the FFmpeg reader pipe auto-rotates video frames by default, we must 
+    swap the width and height if the metadata contains a 90 or 270 degree rotation,
+    so that downstream numpy arrays are reshaped to the correct physical dimensions.
     """
-    command = [
+    import json
+    command_probe = [
         "ffprobe", "-v", "error",
         "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "csv=p=0:s=x",
+        "-show_entries", "stream=width,height:stream_tags=rotate",
+        "-of", "json",
         target_path,
     ]
-    output = subprocess.check_output(command).decode().strip()
-    width, height = map(int, output.split("x"))
+    width, height = 0, 0
+    rotation = 0
+    try:
+        output_probe = subprocess.check_output(command_probe).decode("utf-8").strip()
+        data_probe = json.loads(output_probe)
+        stream = data_probe.get("streams", [{}])[0]
+        width = int(stream.get("width", 0))
+        height = int(stream.get("height", 0))
+        tags = stream.get("tags", {})
+        if "rotate" in tags:
+            rotation = int(tags.get("rotate", 0))
+    except Exception:
+        pass
+
+    # Also check Display Matrix in side data
+    command_sd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "side_data=rotation",
+        "-of", "json",
+        target_path,
+    ]
+    try:
+        output_sd = subprocess.check_output(command_sd).decode("utf-8").strip()
+        data_sd = json.loads(output_sd)
+        for packet in data_sd.get("packets_and_frames", []):
+            for side_data in packet.get("side_data_list", []):
+                if "rotation" in side_data:
+                    rotation = int(side_data.get("rotation", 0))
+                    break
+    except Exception:
+        pass
+
+    if abs(rotation) in [90, 270]:
+        return height, width
     return width, height
 
 
